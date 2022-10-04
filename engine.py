@@ -27,7 +27,6 @@ def train_one_epoch(model,lossfun,data_loader, optimizer, device, conf,model_ema
     batch_num = len(data_loader)
 
     optimizer.zero_grad()
-    #accumulation_steps = 32
     for i, (samples) in enumerate(tqdm(data_loader)):
 
         prev_img = samples['prev_img'].to(device)
@@ -51,8 +50,11 @@ def train_one_epoch(model,lossfun,data_loader, optimizer, device, conf,model_ema
             outputs = model((prev_img,after_img))   
             loss = lossfun(outputs,targets).mean()
             loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
+            if (i + 1) % conf.SOLVER.ACCUMULATION == 0:
+                if conf.SOLVER.GRADIENT_CLIP>0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), conf.SOLVER.GRADIENT_CLIP)
+                optimizer.step()
+                optimizer.zero_grad()
 
         total_loss += float(loss)
         if model_ema is not None:

@@ -8,6 +8,7 @@ import timm
 from timm.models.layers import Mlp
 from einops import rearrange, reduce, repeat
 from head import FPNHead, FaPNHead, LawinHead
+from swin import SwinTransformer
 
 
 class DiffModule(nn.Module):
@@ -43,19 +44,78 @@ class Model(nn.Module):
     def __init__(self,conf):
         super(Model, self).__init__()
         self.conf = conf
-        self.backbone = timm.create_model(conf.META_ARCHITECTURE, pretrained=True, out_indices=(0,1,2,3), drop_path_rate=0.2,features_only=True)
+        if 'convnext' in conf.META_ARCHITECTURE:
+            self.backbone = timm.create_model(conf.META_ARCHITECTURE, pretrained=True, out_indices=(0,1,2,3), drop_path_rate=0.2,features_only=True)
+        elif 'swin' in conf.META_ARCHITECTURE:
+            swin_config = None
+            if conf.META_ARCHITECTURE == 'swin_tiny':
+                checkpoint_file = 'https://download.openmmlab.com/mmsegmentation/v0.5/pretrain/swin/swin_tiny_patch4_window7_224_20220317-1cdeb081.pth'  # noqa
+                swin_config = dict(
+                init_cfg=dict(type='Pretrained', checkpoint=checkpoint_file),
+                embed_dims=96,
+                depths=[2, 2, 6, 2],
+                num_heads=[3, 6, 12, 24],
+                window_size=7,
+                use_abs_pos_embed=False,
+                drop_path_rate=0.3,
+                patch_norm=True)
+            elif conf.META_ARCHITECTURE == 'swin_small':
+                checkpoint_file = 'https://download.openmmlab.com/mmsegmentation/v0.5/pretrain/swin/swin_small_patch4_window7_224_20220317-7ba6d6dd.pth'  # noqa
+                swin_config = dict(
+                init_cfg=dict(type='Pretrained', checkpoint=checkpoint_file),
+                depths=[2, 2, 18, 2],
+                embed_dims=96,
+                num_heads=[3, 6, 12, 24],
+                window_size=7,
+                use_abs_pos_embed=False,
+                drop_path_rate=0.3,
+                patch_norm=True)
+            elif conf.META_ARCHITECTURE == 'swin_base':
+                checkpoint_file = 'https://download.openmmlab.com/mmsegmentation/v0.5/pretrain/swin/swin_base_patch4_window7_224_20220317-e9b98025.pth'
+                swin_config = dict(
+                init_cfg=dict(type='Pretrained', checkpoint=checkpoint_file),
+                embed_dims=128,
+                depths=[2, 2, 18, 2],
+                num_heads=[4, 8, 16, 32],
+                window_size=7,
+                use_abs_pos_embed=False,
+                drop_path_rate=0.3,
+                patch_norm=True)
+            elif conf.META_ARCHITECTURE == 'swin_base_12':
+                checkpoint_file = 'https://download.openmmlab.com/mmsegmentation/v0.5/pretrain/swin/swin_base_patch4_window12_384_20220317-55b0104a.pth'
+                swin_config = dict(
+                init_cfg=dict(type='Pretrained', checkpoint=checkpoint_file),
+                pretrain_img_size=384,
+                embed_dims=128,
+                depths=[2, 2, 18, 2],
+                num_heads=[4, 8, 16, 32],
+                window_size=12,
+                use_abs_pos_embed=False,
+                drop_path_rate=0.3,
+                patch_norm=True)
+            
+            self.backbone = SwinTransformer(**swin_config)
 
         """
-        1 -> n : low resolution
-        96, 192, 384, 768
-        """
-        
-        self.conv_diff1 = DiffModule(128,256)
-        self.conv_diff2 = DiffModule(256,256)
-        self.conv_diff3 = DiffModule(512,256)
-        self.conv_diff4 = DiffModule(1024,256)
+        calculate channels
+        """        
+        temp = torch.randn(2,3,256,256)
+        res = self.backbone(temp)
+        channels_list = []
+        for r in res:
+            channels_list.append(r.shape[1])
 
-        self.segmentation_head = LawinHead([256,256,256,256],256,2)
+        self.conv_diff1 = DiffModule(channels_list[0],256)
+        self.conv_diff2 = DiffModule(channels_list[1],256)
+        self.conv_diff3 = DiffModule(channels_list[2],256)
+        self.conv_diff4 = DiffModule(channels_list[3],256)
+
+        if conf.SEGMENTATION_HEAD == 'lawin':
+            self.segmentation_head = LawinHead([256,256,256,256],256,2)
+        elif conf.SEGMENTATION_HEAD == 'fpn':
+            self.segmentation_head = FPNHead([256,256,256,256],256,2)
+        elif conf.SEGMENTATION_HEAD == 'fapn':
+            self.segmentation_head = FaPNHead([256,256,256,256],256,2)
     
     def forward(self, input):
 

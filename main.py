@@ -23,6 +23,7 @@ from torch.cuda.amp import autocast, GradScaler
 import shutil
 from itertools import product
 import copy
+import random
 
 def adjust_learning_rate(optimizer, epoch, conf):
     """Decays the learning rate with half-cycle cosine after warmup"""
@@ -30,7 +31,7 @@ def adjust_learning_rate(optimizer, epoch, conf):
         lr_rate =  (epoch+1) / conf.SOLVER.WARMUP_EPOCH
     else:
         lr_rate =  0.5 * (1. + math.cos(math.pi * (epoch - conf.SOLVER.WARMUP_EPOCH) / (conf.SOLVER.EPOCH - conf.SOLVER.WARMUP_EPOCH)))
-    lrs = [conf.SOLVER.BASE_LR]
+    lrs = [conf.SOLVER.BASE_LR, conf.SOLVER.BACKBONE_LR]
     new_lrs = []
     for i,param_group in enumerate(optimizer.param_groups):
         param_group['lr'] = lr_rate*lrs[i]
@@ -74,16 +75,14 @@ def main_worker(gpu, ngpus_per_node, conf):
 
     recur(sweep_file,'')
     sweeps = list(product(*[new_dict[k] for k in new_dict.keys()]))
+    print(sweeps)
 
     for sweep in sweeps:
         conf = copy.deepcopy(default_conf)
-        for k in new_dict.keys():
-            k = k.replace('MODEL.','')
-            if k=='META_ARCHITECTURE':
-                conf.MODEL[k] = sweep[0]
-            elif k=='SEGMENTATION_HEAD':
-                conf.MODEL[k] = sweep[1]
-        print(conf)
+        keys =  list(new_dict.keys())
+        for i,k in enumerate(keys):
+            OmegaConf.update(conf,list(new_dict.keys())[i],sweep[i])
+
         if conf.DISTRIBUTE.GPU==0 and conf.ETC.WANDB:
             """
             set experiment name
@@ -141,9 +140,18 @@ def main_worker(gpu, ngpus_per_node, conf):
         
         base_optimizer = None
         optimizer = None
+
+        conf.SOLVER.BACKBONE_LR = conf.SOLVER.BASE_LR*0.1
+
+        param_dicts = [
+        {"params": [p for n, p in model.named_parameters() if "backbone" not in n and p.requires_grad]},
+        {
+            "params": [p for n, p in model.named_parameters() if "backbone" in n and p.requires_grad],
+            "lr": conf.SOLVER.BACKBONE_LR,
+        },]
         
         if conf.SOLVER.OPTIMIZER == 'ADAMW':
-            optimizer = create_optimizer_v2(model.parameters(),'adamw', lr=conf.SOLVER.BASE_LR, weight_decay=conf.SOLVER.WEIGHT_DECAY)#, layer_decay = 0.8)
+            optimizer = create_optimizer_v2(param_dicts,'adamw', lr=conf.SOLVER.BASE_LR, weight_decay=conf.SOLVER.WEIGHT_DECAY)#, layer_decay = 0.8)
         
         device = torch.device("cuda:"+str(conf.DISTRIBUTE.GPU))
         
@@ -165,7 +173,7 @@ def main_worker(gpu, ngpus_per_node, conf):
             val_dataset, batch_size=conf.SOLVER.IMS_PER_BATCH, shuffle=(val_sampler is None),
             num_workers=conf.DATALOADER.WORKERS, pin_memory=True, sampler=val_sampler, drop_last=False)
 
-        best_score  = 0
+        best_score  = [[0,'']]
         if conf.ETC.EVAL:
             wandb_dict_val = evaluate(model, criterion, val_dataloader ,device,conf)
             print(wandb_dict_val)
@@ -184,8 +192,8 @@ def main_worker(gpu, ngpus_per_node, conf):
                 if len(lrs)>1:
                     wandb_dict_train['backbone_lr'] = lrs[1]
                 if conf.DISTRIBUTE.GPU==0:
-                    if (wandb_dict_train['class1_iou']>best_score and wandb_dict_train['class1_iou']>0.75):
-                        best_score = wandb_dict_train['class1_iou']
+                    if (wandb_dict_train['class1_iou']>best_score[-1][0]):
+                        
                         weight_dict = None
                         if conf.MODEL.EMA==0:
                             weight_dict = {
@@ -197,15 +205,30 @@ def main_worker(gpu, ngpus_per_node, conf):
                                 'model_state_dict': model_ema.module.state_dict(),}
                     
                         torch.save(weight_dict,'./exp/'+experiment_name+'/weight_'+str(epoch)+'.pth')
+                        best_score.append([wandb_dict_train['class1_iou'],'./exp/'+experiment_name+'/weight_'+str(epoch)+'.pth'])
+                        if len(best_score)>3:
+                            os.remove(best_score[0][1])
+                            best_score = best_score[1:]
                     if conf.ETC.WANDB:
                         wandb.log(wandb_dict_train)
             if conf.ETC.WANDB:
+                print(best_score)
                 wandb.finish()
+
     return True
 
 def main():
     conf = OmegaConf.load('config.yaml')
-    print(conf)
+
+    random_seed = 777
+
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(random_seed)
+    random.seed(random_seed)
 
     if conf.DISTRIBUTE.GPU is not None:
         warnings.warn('You have chosen a specific GPU. This will completely '
