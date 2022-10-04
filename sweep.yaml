@@ -1,0 +1,7 @@
+MODEL:
+  META_ARCHITECTURE:
+    - "convnext_base_in22ft1k"
+  SEGMENTATION_HEAD:
+    - "lawin"
+    - "fpn"
+    - "fapn"

@@ -7,7 +7,7 @@ import torchvision.transforms.functional as TF
 import timm
 from timm.models.layers import Mlp
 from einops import rearrange, reduce, repeat
-from head import FPNHead
+from head import FPNHead, FaPNHead, LawinHead
 
 
 class DiffModule(nn.Module):
@@ -43,25 +43,19 @@ class Model(nn.Module):
     def __init__(self,conf):
         super(Model, self).__init__()
         self.conf = conf
-        self.backbone = None
-        if conf.META_ARCHITECTURE == 'vit':
-            self.backbone = timm.create_model('vit_base_patch16_224', pretrained=True, num_classes=0)
-        elif conf.META_ARCHITECTURE == 'convnext':
-            self.backbone = timm.create_model('convnext_tiny', pretrained=True, out_indices=(0,1,2,3), drop_path_rate=0.2,features_only=True)
-        elif conf.META_ARCHITECTURE == 'swin':
-            self.backbone = timm.create_model('swin_large_patch4_window12_384_in22k', pretrained=True, num_classes=3,drop_path_rate=0.5,drop_rate=0.0)
+        self.backbone = timm.create_model(conf.META_ARCHITECTURE, pretrained=True, out_indices=(0,1,2,3), drop_path_rate=0.2,features_only=True)
 
         """
         1 -> n : low resolution
         96, 192, 384, 768
         """
         
-        self.conv_diff1 = DiffModule(96,256)
-        self.conv_diff2 = DiffModule(192,256)
-        self.conv_diff3 = DiffModule(384,256)
-        self.conv_diff4 = DiffModule(768,256)
+        self.conv_diff1 = DiffModule(128,256)
+        self.conv_diff2 = DiffModule(256,256)
+        self.conv_diff3 = DiffModule(512,256)
+        self.conv_diff4 = DiffModule(1024,256)
 
-        self.segmentation_head = FPNHead([256,256,256,256],256,2)
+        self.segmentation_head = LawinHead([256,256,256,256],256,2)
     
     def forward(self, input):
 
@@ -78,7 +72,7 @@ class Model(nn.Module):
         diff3 = self.conv_diff3(prev_img3,after_img3)
         diff4 = self.conv_diff4(prev_img4,after_img4)
 
-        output = self.segmentation_head([diff4,diff3,diff2,diff1])
+        output = self.segmentation_head([diff1,diff2,diff3,diff4])
 
         output = F.interpolate(output, size=prev_img.size()[2:], mode='bilinear', align_corners=True)
 
