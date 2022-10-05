@@ -155,6 +155,7 @@ def evaluate(model,lossfun ,data_loader, device,conf,scaler,test=False,exp_name=
             shutil.copy('/data/LEVIR-CD-256/'+'A'+'/'+p, "./exp/"+exp_name+'/imgs/'+str(iou)[:4]+p.replace('.png','')+'_A.png')
             shutil.copy('/data/LEVIR-CD-256/'+'B'+'/'+p, "./exp/"+exp_name+'/imgs/'+str(iou)[:4]+p.replace('.png','')+'_B.png')
         
+        plt.cla()
         plt.hist(class1_iou_list)
         plt.savefig("./exp/"+exp_name+'/iou_hist.png')
 

@@ -4,3 +4,7 @@ MODEL:
     - "swin_small"
   SEGMENTATION_HEAD:
     - "fpn"
+SOLVER:
+  BASE_LR:
+    - 0.0001
+    - 0.00005
