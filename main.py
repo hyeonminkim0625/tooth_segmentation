@@ -25,6 +25,7 @@ from itertools import product
 import copy
 import random
 from omegaconf.dictconfig import DictConfig
+from loss import DiceFocalLoss
 
 def cfg2dict(cfg: DictConfig):
     """
@@ -78,25 +79,29 @@ def main_worker(gpu, ngpus_per_node, conf):
     # create model
 
     default_conf = copy.deepcopy(conf)
-    sweep_file = OmegaConf.load('sweep.yaml')
-    new_dict = {}
-    def recur(dic,parent):
-        for k,v in dic.items():
-            #print(type(dic))
-            if isinstance(dic,omegaconf.dictconfig.DictConfig) and isinstance(dic[k],omegaconf.dictconfig.DictConfig):
-                recur(dic[k],parent+k+'.')
-            else:
-                new_dict[parent+k] = dic[k]
 
-    recur(sweep_file,'')
-    sweeps = list(product(*[new_dict[k] for k in new_dict.keys()]))
-    print(sweeps)
+    sweeps = ['eval']
+    if conf.ETC.SWEEP:
+        sweep_file = OmegaConf.load('sweep.yaml')
+        new_dict = {}
+        def recur(dic,parent):
+            for k,v in dic.items():
+                #print(type(dic))
+                if isinstance(dic,omegaconf.dictconfig.DictConfig) and isinstance(dic[k],omegaconf.dictconfig.DictConfig):
+                    recur(dic[k],parent+k+'.')
+                else:
+                    new_dict[parent+k] = dic[k]
+
+        recur(sweep_file,'')
+        sweeps = list(product(*[new_dict[k] for k in new_dict.keys()]))
+        print(sweeps)
 
     for sweep in sweeps:
         conf = copy.deepcopy(default_conf)
-        keys =  list(new_dict.keys())
-        for i,k in enumerate(keys):
-            OmegaConf.update(conf,list(new_dict.keys())[i],sweep[i])
+        if conf.ETC.SWEEP:
+            keys =  list(new_dict.keys())
+            for i,k in enumerate(keys):
+                OmegaConf.update(conf,list(new_dict.keys())[i],sweep[i])
         
         random_seed = 777
 
@@ -124,6 +129,7 @@ def main_worker(gpu, ngpus_per_node, conf):
             
             experiment_name = 'exp_'+str(datetime.datetime.now()).split('.')[0]
             os.mkdir('./exp/'+experiment_name)
+            os.mkdir('./exp/'+experiment_name+'/imgs')
             wandb.init(project='change_detection',name=experiment_name)
             wandb.config.update(wandb_conf_dict)
             with open('./exp/'+experiment_name+'/config.yaml', "w") as f:
@@ -131,7 +137,7 @@ def main_worker(gpu, ngpus_per_node, conf):
         model = Model(conf.MODEL)
         
         if conf.ETC.EVAL:
-            checkpoint = torch.load('weight_49.pth')['model_state_dict']
+            checkpoint = torch.load('weight_27.pth')['model_state_dict']
             model.load_state_dict(checkpoint)
 
         if conf.DISTRIBUTE.DISTRIBUTE:
@@ -163,7 +169,6 @@ def main_worker(gpu, ngpus_per_node, conf):
             if conf.DISTRIBUTE.RANK == 0:
                 print('Using native Torch AMP. Training in mixed precision.')
 
-        
         model_ema = None
         if conf.MODEL.EMA > 0:
             # 1 : no update
@@ -192,6 +197,7 @@ def main_worker(gpu, ngpus_per_node, conf):
         
         train_dataset = LEVIR_256(conf.DATASETS,'train')
         val_dataset = LEVIR_256(conf.DATASETS,'val')
+        
 
         if conf.DISTRIBUTE.DISTRIBUTE:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -207,11 +213,20 @@ def main_worker(gpu, ngpus_per_node, conf):
         val_dataloader = torch.utils.data.DataLoader(
             val_dataset, batch_size=conf.SOLVER.IMS_PER_BATCH, shuffle=(val_sampler is None),
             num_workers=conf.DATALOADER.WORKERS, pin_memory=True, sampler=val_sampler, drop_last=False)
+        
+        
 
         best_score  = [[0,'']]
         if conf.ETC.EVAL:
-            wandb_dict_val = evaluate(model, criterion, val_dataloader ,device,conf)
-            print(wandb_dict_val)
+            experiment_name = 'exp_2022-10-05 17:31:24'
+            test_dataset = LEVIR_256(conf.DATASETS,'test')
+            test_dataloader = torch.utils.data.DataLoader(
+                test_dataset, batch_size=conf.SOLVER.IMS_PER_BATCH, shuffle=False,
+                num_workers=conf.DATALOADER.WORKERS, pin_memory=True, drop_last=False)
+
+            temp_wandb_dict = evaluate(model, criterion, test_dataloader ,device,conf,scaler,True,experiment_name)
+            wandb_dict = {}
+            wandb_dict['test_class1_iou'] = temp_wandb_dict['class1_iou']
             return True
         else:
             for epoch in range(conf.SOLVER.EPOCH):
@@ -248,6 +263,26 @@ def main_worker(gpu, ngpus_per_node, conf):
                     wandb_dict_train['best_class1_iou'] = best_score[-1][0]
                     if conf.ETC.WANDB:
                         wandb.log(wandb_dict_train)
+            """
+            after learning, inference testset
+            """
+            if conf.DISTRIBUTE.GPU==0:
+                model = Model(conf.MODEL)
+                checkpoint = torch.load(best_score[-1][1])['model_state_dict']
+                model.load_state_dict(checkpoint)                
+                model.cuda()
+                test_dataset = LEVIR_256(conf.DATASETS,'test')
+                test_dataloader = torch.utils.data.DataLoader(
+                    test_dataset, batch_size=conf.SOLVER.IMS_PER_BATCH, shuffle=False,
+                    num_workers=conf.DATALOADER.WORKERS, pin_memory=True, drop_last=False)
+
+                
+                temp_wandb_dict = evaluate(model, criterion, test_dataloader ,device,conf,scaler,True,experiment_name)
+                wandb_dict = {}
+                wandb_dict['test_class1_iou'] = temp_wandb_dict['class1_iou']
+                if conf.ETC.WANDB:
+                    wandb.log(wandb_dict)
+            
             if conf.ETC.WANDB:
                 print(best_score)
                 wandb.finish()

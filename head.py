@@ -216,7 +216,7 @@ class LawinAttn(nn.Module):
         return output
         
 
-class ConvModule(nn.Module):
+class Lawin_convmodule(nn.Module):
     def __init__(self, c1, c2):
         super().__init__()
         self.conv = nn.Conv2d(c1, c2, 1, bias=False)
@@ -242,13 +242,13 @@ class LawinHead(nn.Module):
     
         self.image_pool = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            ConvModule(embed_dim, embed_dim)
+            Lawin_convmodule(embed_dim, embed_dim)
         )
-        self.linear_fuse = ConvModule(embed_dim*3, embed_dim)
-        self.short_path = ConvModule(embed_dim, embed_dim)
-        self.cat = ConvModule(embed_dim*5, embed_dim)
+        self.linear_fuse = Lawin_convmodule(embed_dim*3, embed_dim)
+        self.short_path = Lawin_convmodule(embed_dim, embed_dim)
+        self.cat = Lawin_convmodule(embed_dim*5, embed_dim)
 
-        self.low_level_fuse = ConvModule(embed_dim+48, embed_dim)
+        self.low_level_fuse = Lawin_convmodule(embed_dim+48, embed_dim)
         self.linear_pred = nn.Conv2d(embed_dim, num_classes, 1)
         self.dropout = nn.Dropout2d(0.1)
     

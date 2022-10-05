@@ -1,6 +1,6 @@
 MODEL:
-  META_ARCHITECTURE : "swin_base"
-  SEGMENTATION_HEAD : "lawin"
+  META_ARCHITECTURE : "convnext_small_in22ft1k"
+  SEGMENTATION_HEAD : "fpn"
   EMA : 0.0
 SOLVER:
   IMS_PER_BATCH : 64
@@ -30,3 +30,5 @@ ETC :
   EVAL : False
   CHANNELS_LAST : False
   AMP : False
+  TTA : False
+  SWEEP : True

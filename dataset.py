@@ -54,7 +54,7 @@ class LEVIR_256(torch.utils.data.Dataset):
             self.mode='test'
             
             self.label_smooothing = conf.LABEL_SMOOTHING
-            print("val ",len(self))
+            print("test ",len(self))
         
         self.resnet_mean = [0.485, 0.456, 0.406]
         self.resnet_std = [0.229, 0.224, 0.225]
