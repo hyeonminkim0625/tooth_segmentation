@@ -24,6 +24,21 @@ import shutil
 from itertools import product
 import copy
 import random
+from omegaconf.dictconfig import DictConfig
+
+def cfg2dict(cfg: DictConfig):
+    """
+    Recursively convert OmegaConf to vanilla dict
+    :param cfg:
+    :return:
+    """
+    cfg_dict = {}
+    for k, v in cfg.items():
+        if type(v) == DictConfig:
+            cfg_dict[k] = cfg2dict(v)
+        else:
+            cfg_dict[k] = v
+    return cfg_dict
 
 def adjust_learning_rate(optimizer, epoch, conf):
     """Decays the learning rate with half-cycle cosine after warmup"""
@@ -82,15 +97,35 @@ def main_worker(gpu, ngpus_per_node, conf):
         keys =  list(new_dict.keys())
         for i,k in enumerate(keys):
             OmegaConf.update(conf,list(new_dict.keys())[i],sweep[i])
+        
+        random_seed = 777
+
+        torch.manual_seed(random_seed)
+        torch.cuda.manual_seed(random_seed)
+        torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        np.random.seed(random_seed)
+        random.seed(random_seed)
 
         if conf.DISTRIBUTE.GPU==0 and conf.ETC.WANDB:
             """
             set experiment name
             """
+            wandb_conf_dict = {}
+            def recur2(dic,parent):
+                for k,v in dic.items():
+                    #print(type(dic))
+                    if isinstance(dic,omegaconf.dictconfig.DictConfig) and isinstance(dic[k],omegaconf.dictconfig.DictConfig):
+                        recur2(dic[k],parent+k+'.')
+                    else:
+                        wandb_conf_dict[parent+k] = dic[k]
+            recur2(conf,'')
+            
             experiment_name = 'exp_'+str(datetime.datetime.now()).split('.')[0]
             os.mkdir('./exp/'+experiment_name)
             wandb.init(project='change_detection',name=experiment_name)
-            wandb.config.update(conf)
+            wandb.config.update(wandb_conf_dict)
             with open('./exp/'+experiment_name+'/config.yaml', "w") as f:
                 OmegaConf.save(conf, f)
         model = Model(conf.MODEL)
@@ -141,7 +176,7 @@ def main_worker(gpu, ngpus_per_node, conf):
         base_optimizer = None
         optimizer = None
 
-        conf.SOLVER.BACKBONE_LR = conf.SOLVER.BASE_LR*0.1
+        conf.SOLVER.BACKBONE_LR = conf.SOLVER.BASE_LR*0.25
 
         param_dicts = [
         {"params": [p for n, p in model.named_parameters() if "backbone" not in n and p.requires_grad]},
@@ -207,8 +242,10 @@ def main_worker(gpu, ngpus_per_node, conf):
                         torch.save(weight_dict,'./exp/'+experiment_name+'/weight_'+str(epoch)+'.pth')
                         best_score.append([wandb_dict_train['class1_iou'],'./exp/'+experiment_name+'/weight_'+str(epoch)+'.pth'])
                         if len(best_score)>3:
-                            os.remove(best_score[0][1])
+                            if os.path.exists(best_score[0][1]):
+                                os.remove(best_score[0][1])
                             best_score = best_score[1:]
+                    wandb_dict_train['best_class1_iou'] = best_score[-1][0]
                     if conf.ETC.WANDB:
                         wandb.log(wandb_dict_train)
             if conf.ETC.WANDB:
@@ -219,16 +256,6 @@ def main_worker(gpu, ngpus_per_node, conf):
 
 def main():
     conf = OmegaConf.load('config.yaml')
-
-    random_seed = 777
-
-    torch.manual_seed(random_seed)
-    torch.cuda.manual_seed(random_seed)
-    torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    np.random.seed(random_seed)
-    random.seed(random_seed)
 
     if conf.DISTRIBUTE.GPU is not None:
         warnings.warn('You have chosen a specific GPU. This will completely '

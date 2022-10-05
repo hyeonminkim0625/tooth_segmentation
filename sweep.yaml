@@ -1,5 +1,6 @@
 MODEL:
   META_ARCHITECTURE:
+    - "convnext_tiny"
     - "swin_base_12"
     - "swin_base"
     - "swin_tiny"
@@ -7,25 +8,15 @@ MODEL:
     - "convnext_base_in22ft1k"
     - "convnext_large_in22ft1k"
     - "convnext_small_in22ft1k"
-    - "convnext_tiny"
   SEGMENTATION_HEAD:
     - "lawin"
     - "fpn"
     - "fapn"
-  EMA:
-    - 0.0
-    - 0.999
 SOLVER:
   BASE_LR:
     - 0.0002
     - 0.0001
     - 0.00005
-  WARMUP_EPOCH:
-    - 0
-    - 5
   ACCUMULATION:
     - 1
     - 2
-  GRADIENT_CLIP:
-    - 0.0
-    - 1.0
