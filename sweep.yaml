@@ -1,10 +1,15 @@
 MODEL:
   META_ARCHITECTURE:
-    - "convnext_small_in22ft1k"
-    - "swin_small"
+    - "convnext_base_in22ft1k"
   SEGMENTATION_HEAD:
     - "fpn"
 SOLVER:
   BASE_LR:
-    - 0.0001
-    - 0.00005
+    - 0.0004
+  EPOCH:
+    - 200
+LOSS:
+  NAME:
+    - "DiceFocalLoss"
+    - "DiceBCELoss"
+    - "crossentropy"

@@ -25,7 +25,7 @@ from itertools import product
 import copy
 import random
 from omegaconf.dictconfig import DictConfig
-from loss import DiceFocalLoss
+from loss import *
 
 def cfg2dict(cfg: DictConfig):
     """
@@ -174,7 +174,15 @@ def main_worker(gpu, ngpus_per_node, conf):
             # 1 : no update
             # 0 : update everytime
             model_ema = ModelEmaV2(model,decay=conf.MODEL.EMA)
-        criterion = torch.nn.CrossEntropyLoss(label_smoothing=conf.DATASETS.LABEL_SMOOTHING)
+        
+        if conf.LOSS.NAME == 'crossentropy':
+            criterion = torch.nn.CrossEntropyLoss()
+        elif conf.LOSS.NAME == 'DiceBCELoss':
+            criterion = DiceBCELoss()
+        elif conf.LOSS.NAME == 'DiceFocalLoss':
+            criterion = DiceFocalLoss()
+            
+        #torch.nn.CrossEntropyLoss(label_smoothing=conf.DATASETS.LABEL_SMOOTHING)
         #torchvision.ops.sigmoid_focal_loss
         #AsymmetricLossMultiLabel(gamma_neg=4, gamma_pos=0, clip=0.05, disable_torch_grad_focal_loss=True).cuda(conf.DISTRIBUTE.GPU)
         

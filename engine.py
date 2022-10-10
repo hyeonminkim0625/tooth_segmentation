@@ -12,7 +12,7 @@ import random
 from sklearn.metrics import accuracy_score,confusion_matrix,roc_auc_score,roc_curve,mean_absolute_error
 import torch.distributed as dist
 from torch.cuda.amp import autocast, GradScaler
-from utils import calculate_iou
+from utils import calculate_iou, cutmix_data, halfmix_data
 import shutil
 import matplotlib.pyplot as plt
 from model import TestTimeAugmentation
@@ -35,6 +35,11 @@ def train_one_epoch(model,lossfun,data_loader, optimizer, device, conf,model_ema
         prev_img = samples['prev_img'].to(device)
         after_img = samples['after_img'].to(device)
         targets = samples['label_img'].to(device)
+
+        if random.random() < conf.DATASETS.CUTMIX:
+            prev_img,after_img,targets = cutmix_data(prev_img,after_img,targets)
+        if random.random() < conf.DATASETS.HALFCUTMIX:
+            prev_img,after_img,targets = halfmix_data(prev_img,after_img,targets)
             
         if scaler is not None:
             with autocast():
@@ -116,7 +121,7 @@ def evaluate(model,lossfun ,data_loader, device,conf,scaler,test=False,exp_name=
 
         for j in range(prev_img.shape[0]):
             output_mask = F.one_hot(torch.argmax(outputs[j],dim=0),num_classes=2).permute(2,0,1)    
-            target_mask = F.one_hot(targets[j],num_classes=2).permute(2,0,1)
+            target_mask = F.one_hot(torch.argmax(targets[j],dim=0),num_classes=2).permute(2,0,1)
 
             class0_iou ,class1_iou = calculate_iou(output_mask,target_mask,2)
 
@@ -127,7 +132,7 @@ def evaluate(model,lossfun ,data_loader, device,conf,scaler,test=False,exp_name=
             for j in range(prev_img.shape[0]):
                 output_mask = torch.argmax(outputs[j],dim=0)*255
                 output_mask = output_mask.cpu().detach().numpy().astype(np.uint8)
-                target_mask = (targets[j]*255).cpu().detach().numpy().astype(np.uint8)
+                target_mask = (torch.argmax(targets[j],dim=0)*255).cpu().detach().numpy().astype(np.uint8)
                 cv2.imwrite('./temp/'+paths[j].replace('.png','')+'_pred.png',output_mask)
                 cv2.imwrite('./temp/'+paths[j].replace('.png','')+'_target.png',target_mask)
                 paths_list.append(paths[j])
