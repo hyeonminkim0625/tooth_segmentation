@@ -30,20 +30,14 @@ class LEVIR_256(torch.utils.data.Dataset):
         super(LEVIR_256, self).__init__()
         
         if(mode=='train'):
-            temp = []
-            for i in range(5):
-                if i == conf.VAL:
-                    continue
-                temp.append(pd.read_csv(str(i)+'_split.csv'))
-            data = pd.concat(temp)
+            data = glob('/data/maicon_train/x/*.png')
             dataset = []
-            for _,row in tqdm(data.iterrows()) :
-                dataset.append({'path' : row['path']})
+            for row in tqdm(data) :
+                dataset.append({'path' : row})
             
             self.data = dataset
-
             self.mode='train'
-            self.geometric_transform = A.Compose(
+            self.transform = A.Compose(
                 [
                     A.Resize(conf.IMAGE_SIZE, conf.IMAGE_SIZE),
                     A.RandomSizedCrop(min_max_height=(int(0.75*conf.IMAGE_SIZE), conf.IMAGE_SIZE), height=conf.IMAGE_SIZE, width=conf.IMAGE_SIZE, p=0.5),
@@ -74,10 +68,10 @@ class LEVIR_256(torch.utils.data.Dataset):
             print("train ",len(self))
 
         elif(mode=='val'):
-            data = pd.read_csv(str(conf.VAL)+'_split.csv')
+            data = glob('/data/maicon_train/x/*.png')
             dataset = []
-            for _,row in tqdm(data.iterrows()) :
-                dataset.append({'path' : row['path']})
+            for row in tqdm(data) :
+                dataset.append({'path' : row})
             
             self.data = dataset
             self.mode='val'
@@ -121,35 +115,20 @@ class LEVIR_256(torch.utils.data.Dataset):
         if self.mode!='test':
             label_img_path = img_path.replace('x','y')
             label_img = cv2.imread(label_img_path,0)
-            h,w = label_img.shape
-            label_prev_img = label_img[:,:w//2]
-            label_after_img = label_img[:,w//2:]
-            label_img = label_prev_img+label_after_img
-
-            temp = np.zeros((h,w//2,4))
+            temp = np.zeros((h,w,4))
             for p in range(4):
                 temp[:,:,p] = (label_img==p)*1
             label_img = temp
-            
         else:
-            label_img = np.zeros((h,w//2,4))
+            label_img = np.zeros((h,w,4))
 
         if self.mode == 'train':
-            transformed = self.geometric_transform(image = prev_img, image0 = after_img, mask=label_img)
-            prev_img = transformed['image']
-            after_img = transformed['image0']
+            transformed = self.transform(image = img, mask=label_img)
+            img = transformed['image']
             label_img = transformed['mask']
-
-            transformed = self.transform(image = prev_img)
-            prev_img = transformed['image']
-
-            transformed = self.transform(image = after_img)
-            after_img = transformed['image']
-            label_img = torch.from_numpy(label_img)
         else:
-            transformed = self.transform(image = prev_img, image0 = after_img, mask=label_img)
-            prev_img = transformed['image']
-            after_img = transformed['image0']
+            transformed = self.transform(image = img, mask=label_img)
+            img = transformed['image']
             label_img = transformed['mask']
 
         if self.mode != 'test':
@@ -164,8 +143,7 @@ class LEVIR_256(torch.utils.data.Dataset):
         """
         img_dict = {}
 
-        img_dict['prev_img'] = prev_img
-        img_dict['after_img'] = after_img
+        img_dict['imgs'] = img
         img_dict['label_img'] = label_img
         img_dict['origin_h'] = h
         img_dict['origin_w'] = w

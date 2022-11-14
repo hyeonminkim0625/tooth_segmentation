@@ -143,10 +143,6 @@ def main_worker(gpu, conf):
             criterion = DiceBCELoss()
         elif conf.LOSS.NAME == 'DiceFocalLoss':
             criterion = DiceFocalLoss()
-            
-        #torch.nn.CrossEntropyLoss(label_smoothing=conf.DATASETS.LABEL_SMOOTHING)
-        #torchvision.ops.sigmoid_focal_loss
-        #AsymmetricLossMultiLabel(gamma_neg=4, gamma_pos=0, clip=0.05, disable_torch_grad_focal_loss=True).cuda(conf.DISTRIBUTE.GPU)
         
         base_optimizer = None
         optimizer = None

@@ -84,16 +84,15 @@ def evaluate(model,lossfun ,data_loader, device,conf,scaler,test=False,exp_name=
         imgs = samples['imgs'].to(device)
         targets = samples['label_img'].to(device)
         
-        else:
-            if scaler is not None:
-                with autocast():
-                    outputs = model(imgs)
-                    if not test:
-                        loss = lossfun(outputs,targets).mean()
-            else:
+        if scaler is not None:
+            with autocast():
                 outputs = model(imgs)
                 if not test:
                     loss = lossfun(outputs,targets).mean()
+        else:
+            outputs = model(imgs)
+            if not test:
+                loss = lossfun(outputs,targets).mean()
         if not test:
             total_loss += float(loss)
         if conf.DISTRIBUTE.DISTRIBUTE and (not test):
