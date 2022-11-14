@@ -1,8 +1,0 @@
-#nsml: registry.navercorp.com/nsml/airush2020:pytorch1.5
-
-pillow==7.2.0
-torch==1.5.0
-torchvision
-tqdm
-pretrainedmodels
-timm
