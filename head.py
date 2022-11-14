@@ -26,7 +26,9 @@ class FPNHead(nn.Module):
             self.output_convs.append(ConvModule(channel, channel, 3, 1, 1))
 
         self.conv_seg = nn.Conv2d(channel, num_classes, 1)
-        self.dropout = nn.Dropout2d(0.1)
+        self.dropouts = nn.ModuleList([
+            nn.Dropout2d(0.2) for _ in range(16)
+        ])
 
     def forward(self, features) -> Tensor:
         features = features[::-1]
@@ -36,8 +38,13 @@ class FPNHead(nn.Module):
             out = F.interpolate(out, scale_factor=2.0, mode='nearest')
             out = out + self.lateral_convs[i](features[i])
             out = self.output_convs[i](out)
-        out = self.conv_seg(self.dropout(out))
-        return out
+
+        for i, dropout in enumerate(self.dropouts):
+            if i == 0:
+                output = self.conv_seg(dropout(out.clone()))
+            else:
+                output += self.conv_seg(dropout(out.clone()))
+        return output / len(self.dropouts)
 
 class DCNv2(nn.Module):
     def __init__(self, c1, c2, k, s, p, g=1):
@@ -102,7 +109,9 @@ class FaPNHead(nn.Module):
             self.output_convs.append(ConvModule(channel, channel, 3, 1, 1))
 
         self.conv_seg = nn.Conv2d(channel, num_classes, 1)
-        self.dropout = nn.Dropout2d(0.1)
+        self.dropouts = nn.ModuleList([
+            nn.Dropout2d(0.2) for _ in range(16)
+        ])
 
     def forward(self, features) -> Tensor:
         features = features[::-1]
@@ -111,8 +120,13 @@ class FaPNHead(nn.Module):
         for feat, align_module, output_conv in zip(features[1:], self.align_modules[1:], self.output_convs):
             out = align_module(feat, out)
             out = output_conv(out)
-        out = self.conv_seg(self.dropout(out))
-        return out
+            
+        for i, dropout in enumerate(self.dropouts):
+            if i == 0:
+                output = self.conv_seg(dropout(out.clone()))
+            else:
+                output += self.conv_seg(dropout(out.clone()))
+        return output / len(self.dropouts)
 
 
 class MLP(nn.Module):

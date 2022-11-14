@@ -23,17 +23,24 @@ from PIL import Image
 import pickle
 from utils import RandomColorjitter,RandomCropResize,RandomFlip
 from albumentations.pytorch import ToTensorV2
+from skimage.exposure import match_histograms
 
 class LEVIR_256(torch.utils.data.Dataset):
     def __init__(self,conf,mode):
         super(LEVIR_256, self).__init__()
         
         if(mode=='train'):
-            txt_file = open("/data/LEVIR-CD-256/list/train.txt", "r")
-            content_list = txt_file.readlines()
-            content_list = [c.replace('\n','') for c in content_list]
+            temp = []
+            for i in range(5):
+                if i == conf.VAL:
+                    continue
+                temp.append(pd.read_csv(str(i)+'_split.csv'))
+            data = pd.concat(temp)
+            dataset = []
+            for _,row in tqdm(data.iterrows()) :
+                dataset.append({'path' : row['path']})
             
-            self.data = content_list
+            self.data = dataset
 
             self.mode='train'
             self.geometric_transform = A.Compose(
@@ -41,11 +48,11 @@ class LEVIR_256(torch.utils.data.Dataset):
                     A.Resize(conf.IMAGE_SIZE, conf.IMAGE_SIZE),
                     A.RandomSizedCrop(min_max_height=(int(0.75*conf.IMAGE_SIZE), conf.IMAGE_SIZE), height=conf.IMAGE_SIZE, width=conf.IMAGE_SIZE, p=0.5),
                     A.Flip(p=0.5),
-                    A.RandomRotate90(p=0.5),],
-                    additional_targets={'image0': 'image'}
-            )
-            self.transform = A.Compose(
-                [
+                    A.OneOf([
+                       A.GridDistortion(p=1.0),
+                       A.ElasticTransform(p=1.0)
+                    ], p=0.5),
+                    A.RandomRotate90(p=0.5),
                     A.OneOf([
                        A.GaussNoise(p=1.0),
                        A.ISONoise(p=1.0)
@@ -53,14 +60,11 @@ class LEVIR_256(torch.utils.data.Dataset):
                     A.OneOf([
                         A.MedianBlur(blur_limit=3, p=1.0),
                         A.Blur(blur_limit=3, p=1.0),
-                        A.CLAHE(p=1.0),
-                        A.Equalize(p=1.0),
                     ], p=0.5),
                     A.ColorJitter(0.4,0.4,0.4,0.4),
                     A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
                     ToTensorV2(),
-                ],
-                
+                    ]
             )
 
             print(conf.LABEL_SMOOTHING)
@@ -70,31 +74,33 @@ class LEVIR_256(torch.utils.data.Dataset):
             print("train ",len(self))
 
         elif(mode=='val'):
-            txt_file = open("/data/LEVIR-CD-256/list/val.txt", "r")
-            content_list = txt_file.readlines()
-            content_list = [c.replace('\n','') for c in content_list]
-            self.data = content_list
+            data = pd.read_csv(str(conf.VAL)+'_split.csv')
+            dataset = []
+            for _,row in tqdm(data.iterrows()) :
+                dataset.append({'path' : row['path']})
+            
+            self.data = dataset
             self.mode='val'
             self.transform = A.Compose(
             [A.Resize(conf.IMAGE_SIZE, conf.IMAGE_SIZE),
             A.Normalize(mean=(0.485, 0.456, 0.406),
-            std=(0.229, 0.224, 0.225)), ToTensorV2()],
-            additional_targets={'image0': 'image'})
+            std=(0.229, 0.224, 0.225)), ToTensorV2()],)
             
             self.label_smooothing = conf.LABEL_SMOOTHING
             #print("val ",len(self))
         
         elif(mode=='test'):
-            txt_file = open("/data/LEVIR-CD-256/list/test.txt", "r")
-            content_list = txt_file.readlines()
-            content_list = [c.replace('\n','') for c in content_list]
-            self.data = content_list
+            data = glob('/data/maicon_test/x/*.png')
+            dataset = []
+            for row in tqdm(data) :
+                dataset.append({'path' : row})
+            self.data = dataset
+
             self.mode='test'
             self.transform = A.Compose(
             [A.Resize(conf.IMAGE_SIZE, conf.IMAGE_SIZE),
             A.Normalize(mean=(0.485, 0.456, 0.406),
-            std=(0.229, 0.224, 0.225)), ToTensorV2()],
-            additional_targets={'image0': 'image'})
+            std=(0.229, 0.224, 0.225)), ToTensorV2()],)
             
             self.label_smooothing = conf.LABEL_SMOOTHING
             print("test ",len(self))
@@ -106,18 +112,28 @@ class LEVIR_256(torch.utils.data.Dataset):
         
     def __getitem__(self,index):
         
-        img_path = self.data[index]
+        img_path = self.data[index]['path']
 
-        prev_img_path = '/data/LEVIR-CD-256/'+'A'+'/'+img_path
-        after_img_path = '/data/LEVIR-CD-256/'+'B'+'/'+img_path
-        label_img_path = '/data/LEVIR-CD-256/'+'label'+'/'+img_path
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        h,w,c = img.shape
 
-        prev_img = cv2.imread(prev_img_path)
-        prev_img = cv2.cvtColor(prev_img, cv2.COLOR_BGR2RGB)
-        after_img = cv2.imread(after_img_path)
-        after_img = cv2.cvtColor(after_img, cv2.COLOR_BGR2RGB)
+        if self.mode!='test':
+            label_img_path = img_path.replace('x','y')
+            label_img = cv2.imread(label_img_path,0)
+            h,w = label_img.shape
+            label_prev_img = label_img[:,:w//2]
+            label_after_img = label_img[:,w//2:]
+            label_img = label_prev_img+label_after_img
 
-        label_img = cv2.imread(label_img_path,0)
+            temp = np.zeros((h,w//2,4))
+            for p in range(4):
+                temp[:,:,p] = (label_img==p)*1
+            label_img = temp
+            
+        else:
+            label_img = np.zeros((h,w//2,4))
+
         if self.mode == 'train':
             transformed = self.geometric_transform(image = prev_img, image0 = after_img, mask=label_img)
             prev_img = transformed['image']
@@ -129,16 +145,19 @@ class LEVIR_256(torch.utils.data.Dataset):
 
             transformed = self.transform(image = after_img)
             after_img = transformed['image']
-            label_img = torch.from_numpy(label_img/255.0).to(torch.int64)
+            label_img = torch.from_numpy(label_img)
         else:
             transformed = self.transform(image = prev_img, image0 = after_img, mask=label_img)
             prev_img = transformed['image']
             after_img = transformed['image0']
             label_img = transformed['mask']
-            label_img = (label_img/255.0).to(torch.int64)
 
-        label_img = F.one_hot(label_img,num_classes=2).permute(2,0,1).to(torch.float32)
-        label_img = (label_img - 0.5)*(1-self.label_smooothing)+0.5
+        if self.mode != 'test':
+            try:
+                label_img = label_img.to(dtype=torch.float32).permute(2,0,1)
+            except:
+                print(label_img_path)
+            label_img = (label_img - 0.5)*(1-self.label_smooothing)+0.5
         
         """
         h w c
@@ -148,6 +167,8 @@ class LEVIR_256(torch.utils.data.Dataset):
         img_dict['prev_img'] = prev_img
         img_dict['after_img'] = after_img
         img_dict['label_img'] = label_img
+        img_dict['origin_h'] = h
+        img_dict['origin_w'] = w
         img_dict['path'] = img_path
     
         return img_dict

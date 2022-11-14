@@ -17,12 +17,6 @@ import shutil
 import matplotlib.pyplot as plt
 from model import TestTimeAugmentation
 
-def reduce_tensor(tensor):
-    rt = tensor.clone()
-    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
-    rt /= dist.get_world_size()
-    return rt
-
 def train_one_epoch(model,lossfun,data_loader, optimizer, device, conf,model_ema,scaler):
     model.train()
     lossfun.train()
@@ -32,18 +26,12 @@ def train_one_epoch(model,lossfun,data_loader, optimizer, device, conf,model_ema
     optimizer.zero_grad()
     for i, (samples) in enumerate(tqdm(data_loader)):
 
-        prev_img = samples['prev_img'].to(device)
-        after_img = samples['after_img'].to(device)
+        imgs = samples['imgs'].to(device)
         targets = samples['label_img'].to(device)
 
-        if random.random() < conf.DATASETS.CUTMIX:
-            prev_img,after_img,targets = cutmix_data(prev_img,after_img,targets)
-        if random.random() < conf.DATASETS.HALFCUTMIX:
-            prev_img,after_img,targets = halfmix_data(prev_img,after_img,targets)
-            
         if scaler is not None:
             with autocast():
-                outputs = model((prev_img,after_img))
+                outputs = model(imgs)
                 loss = lossfun(outputs,targets).mean()
 
             scaler.scale(loss).backward()
@@ -55,7 +43,7 @@ def train_one_epoch(model,lossfun,data_loader, optimizer, device, conf,model_ema
                 scaler.update()
                 optimizer.zero_grad()
         else:
-            outputs = model((prev_img,after_img))   
+            outputs = model(imgs)   
             loss = lossfun(outputs,targets).mean()
             loss.backward()
             if (i + 1) % conf.SOLVER.ACCUMULATION == 0:
@@ -70,12 +58,7 @@ def train_one_epoch(model,lossfun,data_loader, optimizer, device, conf,model_ema
         torch.cuda.synchronize()
 
     total_loss = total_loss/(batch_num)
-    if conf.DISTRIBUTE.DISTRIBUTE:
-        total_loss = (torch.ones(1)*total_loss).cuda()
-        total_loss = float(reduce_tensor(total_loss))
     
-    print(total_loss)
-
     return {"train average losses" : total_loss}
 
 @torch.no_grad()
@@ -90,88 +73,88 @@ def evaluate(model,lossfun ,data_loader, device,conf,scaler,test=False,exp_name=
     
     class0_iou_list =[]
     class1_iou_list =[]
+    class2_iou_list =[]
+    class3_iou_list =[]
+    miou_list =[]
     paths_list =[]
     loss_list = []
 
     for i, (samples) in enumerate(tqdm(data_loader)):
 
-        prev_img = samples['prev_img'].to(device)
-        after_img = samples['after_img'].to(device)
+        imgs = samples['imgs'].to(device)
         targets = samples['label_img'].to(device)
-        paths = samples['path']
-
-        if conf.ETC.TTA and test:
-            outputs, loss = TestTimeAugmentation(model,lossfun,prev_img,after_img,targets,scaler)
         
         else:
             if scaler is not None:
                 with autocast():
-                    outputs = model((prev_img,after_img))
-                    loss = lossfun(outputs,targets).mean()
+                    outputs = model(imgs)
+                    if not test:
+                        loss = lossfun(outputs,targets).mean()
             else:
-                outputs = model((prev_img,after_img))   
-                loss = lossfun(outputs,targets).mean()
-        
-        if conf.DISTRIBUTE.DISTRIBUTE and (not test):
-            loss = reduce_tensor(loss)
-
-        total_loss += float(loss)
+                outputs = model(imgs)
+                if not test:
+                    loss = lossfun(outputs,targets).mean()
+        if not test:
+            total_loss += float(loss)
         if conf.DISTRIBUTE.DISTRIBUTE and (not test):
             torch.cuda.synchronize()
 
-        for j in range(prev_img.shape[0]):
-            output_mask = F.one_hot(torch.argmax(outputs[j],dim=0),num_classes=2).permute(2,0,1)    
-            target_mask = F.one_hot(torch.argmax(targets[j],dim=0),num_classes=2).permute(2,0,1)
+        if not test:
+            for j in range(prev_img.shape[0]):
+                output_mask = F.one_hot(torch.argmax(outputs[j],dim=0),num_classes=4).permute(2,0,1)    
+                target_mask = F.one_hot(torch.argmax(targets[j],dim=0),num_classes=4).permute(2,0,1)
 
-            class0_iou ,class1_iou = calculate_iou(output_mask,target_mask,2)
+                class0_iou ,class1_iou,class2_iou,class3_iou = calculate_iou(output_mask,target_mask,4)
 
-            class0_iou_list.append(float(class0_iou))
-            class1_iou_list.append(float(class1_iou))
+                class0_iou_list.append(float(class0_iou))
+                class1_iou_list.append(float(class1_iou))
+                class2_iou_list.append(float(class2_iou))
+                class3_iou_list.append(float(class3_iou))
+                miou_list.append(float(np.nanmean(np.array([float(class0_iou),float(class1_iou),float(class2_iou),float(class3_iou)]))))
         
         if test:
+            outputs = outputs.argmax(1).cpu().numpy().astype(np.uint8)
             for j in range(prev_img.shape[0]):
-                output_mask = torch.argmax(outputs[j],dim=0)*255
-                output_mask = output_mask.cpu().detach().numpy().astype(np.uint8)
-                target_mask = (torch.argmax(targets[j],dim=0)*255).cpu().detach().numpy().astype(np.uint8)
-                cv2.imwrite('./temp/'+paths[j].replace('.png','')+'_pred.png',output_mask)
-                cv2.imwrite('./temp/'+paths[j].replace('.png','')+'_target.png',target_mask)
-                paths_list.append(paths[j])
+                resized_img = cv2.resize(outputs[j], [int(ws[j]//2), int(hs[j])], interpolation=cv2.INTER_NEAREST)
+                new_img = np.zeros((int(hs[j]),int(ws[j])))
+                new_img[:,:int(ws[j]//2)] = (resized_img==2)*2
+                new_img[:,int(ws[j]//2):] = ((resized_img==1)*1 + (resized_img==3)*3)
+                new_img = new_img.astype(np.uint8)
+                new_path = paths[j].split('/')[-1]
+                print("./exp/"+exp_name+'/preds/'+new_path)
+                cv2.imwrite("./exp/"+exp_name+'/preds/'+new_path, new_img)
 
+    if test:
+        return 0
     total_loss = total_loss/(batch_num)
-    class0_iou = sum(class0_iou_list)/len(class0_iou_list)
-    class1_iou = sum(class1_iou_list)/len(class1_iou_list)
+    class0_iou = np.nanmean(np.array(class0_iou_list))
+    class1_iou = np.nanmean(np.array(class1_iou_list))
+    class2_iou = np.nanmean(np.array(class2_iou_list))
+    class3_iou = np.nanmean(np.array(class3_iou_list))
+    miou = np.nanmean(np.array(miou_list))
 
     if conf.DISTRIBUTE.DISTRIBUTE and (not test):
         class0_iou = (torch.ones(1)*class0_iou).cuda()
         class1_iou = (torch.ones(1)*class1_iou).cuda()
         class0_iou = float(reduce_tensor(class0_iou))
         class1_iou = float(reduce_tensor(class1_iou))
-    
-    if test:
-        class1_iou_list = np.array(class1_iou_list)
-        """
-        filtering low iou img
-        """
-        low_iou_index_list = np.argsort(class1_iou_list)[:30]
-        paths_list = np.array(paths_list)
-        for p,iou in zip(paths_list[low_iou_index_list],class1_iou_list[low_iou_index_list]):
-            shutil.copy('./temp/'+p.replace('.png','')+'_pred.png', "./exp/"+exp_name+'/imgs/'+str(iou)[:4]+p.replace('.png','')+'_pred.png')
-            shutil.copy('./temp/'+p.replace('.png','')+'_target.png', "./exp/"+exp_name+'/imgs/'+str(iou)[:4]+p.replace('.png','')+'_target.png')
-            shutil.copy('/data/LEVIR-CD-256/'+'A'+'/'+p, "./exp/"+exp_name+'/imgs/'+str(iou)[:4]+p.replace('.png','')+'_A.png')
-            shutil.copy('/data/LEVIR-CD-256/'+'B'+'/'+p, "./exp/"+exp_name+'/imgs/'+str(iou)[:4]+p.replace('.png','')+'_B.png')
-        
-        plt.cla()
-        plt.hist(class1_iou_list)
-        plt.savefig("./exp/"+exp_name+'/iou_hist.png')
+        class2_iou = (torch.ones(1)*class2_iou).cuda()
+        class3_iou = (torch.ones(1)*class3_iou).cuda()
+        class2_iou = float(reduce_tensor(class2_iou))
+        class3_iou = float(reduce_tensor(class3_iou))
 
+        miou = (torch.ones(1)*miou).cuda()
+        miou = float(reduce_tensor(miou))
+    
     wandb_dict = {}
 
     wandb_dict['class0_iou'] = class0_iou
     wandb_dict['class1_iou'] = class1_iou
-    wandb_dict['miou'] = (class1_iou+class0_iou)/2
+    wandb_dict['class2_iou'] = class2_iou
+    wandb_dict['class3_iou'] = class3_iou
+    wandb_dict['miou'] = miou
 
     wandb_dict["validation average losses"] = total_loss
     print(wandb_dict)
 
     return wandb_dict
-

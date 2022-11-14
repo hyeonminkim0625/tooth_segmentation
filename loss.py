@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 import numpy as np
-from torchgeometry.losses import SSIM
+
 
 class FocalLoss(nn.Module):
     def __init__(self, alpha=1, gamma=2, logits=False, reduce=True):

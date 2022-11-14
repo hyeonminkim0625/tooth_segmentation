@@ -115,7 +115,6 @@ class RandomFlip(torch.nn.Module):
             prev_image = TF.hflip(prev_image)
             label_image = TF.hflip(label_image)
             
-
         if np.random.random()<self.p:
             after_image = TF.vflip(after_image)
             prev_image = TF.vflip(prev_image)
@@ -131,7 +130,6 @@ class RandomColorjitter(torch.nn.Module):
         self.contrast = contrast
         self.saturation = saturation
         self.hue = hue
-    
 
     def forward(self, prev_image, after_image, label_image):
 
@@ -165,7 +163,10 @@ def calculate_iou(pred,target,num_classes):
     #target_mask = np.argmax(target,axis=0)
     iou_list = []
     for i in range(0,num_classes):
-        iou_score = (torch.sum((pred[i]==True)&(target[i]==True))+ 1e-6) /(torch.sum((pred[i]==True)|(target[i]==True))+ 1e-6)
+        if torch.sum((torch.sum((pred[i]==True)|(target[i]==True)))) == 0:
+            iou_score = np.nan
+        else:
+            iou_score = (torch.sum((pred[i]==True)&(target[i]==True))+ 1e-6) /(torch.sum((pred[i]==True)|(target[i]==True))+ 1e-6)
         iou_list.append(iou_score)
     
     return iou_list

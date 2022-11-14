@@ -1,11 +1,11 @@
 MODEL:
-  META_ARCHITECTURE : "convnext_base_in22ft1k"
+  META_ARCHITECTURE : "convnext_small_in22ft1k"
   SEGMENTATION_HEAD : "fpn"
   EMA : 0.0
 LOSS:
-  NAME : "AsymmetricUnifiedFocalLoss"
+  NAME : "crossentropy"
 SOLVER:
-  IMS_PER_BATCH : 64
+  IMS_PER_BATCH : 32
   BASE_LR  : 0.0002
   EPOCH : 50
   WEIGHT_DECAY : 1e-2
@@ -15,10 +15,11 @@ SOLVER:
   GRADIENT_CLIP : 0.0
   ACCUMULATION : 1
 DATASETS:
-  IMAGE_SIZE : 256
+  IMAGE_SIZE : 512
   LABEL_SMOOTHING : 0.1
   CUTMIX : 0.0
   HALFCUTMIX : 0.0
+  VAL : 0
 DATALOADER:
   WORKERS : 32
 DISTRIBUTE:
