@@ -115,6 +115,7 @@ class LEVIR_256(torch.utils.data.Dataset):
         if self.mode!='test':
             label_img_path = img_path.replace('x','y')
             label_img = cv2.imread(label_img_path,0)
+            label_img = cv2.resize(label_img,(w,h))
             temp = np.zeros((h,w,4))
             for p in range(4):
                 temp[:,:,p] = (label_img==p)*1
