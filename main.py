@@ -111,7 +111,7 @@ def main_worker(gpu, conf):
             os.mkdir('./exp/'+experiment_name)
             os.mkdir('./exp/'+experiment_name+'/imgs')
             os.mkdir('./exp/'+experiment_name+'/preds')
-            wandb.init(project='change_detection',name=experiment_name)
+            wandb.init(project='tooth_test',name=experiment_name)
             wandb.config.update(wandb_conf_dict)
             with open('./exp/'+experiment_name+'/config.yaml', "w") as f:
                 OmegaConf.save(conf, f)
