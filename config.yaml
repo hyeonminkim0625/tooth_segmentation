@@ -31,9 +31,9 @@ DISTRIBUTE:
   GPU : 0
   RANK : 0
 ETC :
-  WANDB : False
+  WANDB : True
   EVAL : False
   CHANNELS_LAST : False
   AMP : False
   TTA : False
-  SWEEP : False
+  SWEEP : True
