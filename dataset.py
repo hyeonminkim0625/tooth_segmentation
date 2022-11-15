@@ -30,7 +30,7 @@ class LEVIR_256(torch.utils.data.Dataset):
         super(LEVIR_256, self).__init__()
         
         if(mode=='train'):
-            data = glob('/data/maicon_train/x/*.png')
+            data = glob('/root/maicon_train/x/*.png')[:10000]
             dataset = []
             for row in tqdm(data) :
                 dataset.append({'path' : row})
@@ -68,7 +68,7 @@ class LEVIR_256(torch.utils.data.Dataset):
             print("train ",len(self))
 
         elif(mode=='val'):
-            data = glob('/data/maicon_train/x/*.png')
+            data = glob('/root/maicon_train/x/*.png')[10000:]
             dataset = []
             for row in tqdm(data) :
                 dataset.append({'path' : row})
