@@ -85,13 +85,13 @@ def main_worker(gpu, conf):
         
         random_seed = 777
 
-        #torch.manual_seed(random_seed)
-        #torch.cuda.manual_seed(random_seed)
-        #torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
-        #torch.backends.cudnn.deterministic = True
-        #torch.backends.cudnn.benchmark = False
-        #np.random.seed(random_seed)
-        #random.seed(random_seed)
+        torch.manual_seed(random_seed)
+        torch.cuda.manual_seed(random_seed)
+        torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        np.random.seed(random_seed)
+        random.seed(random_seed)
 
         if conf.ETC.WANDB:
             """
@@ -225,17 +225,16 @@ def main_worker(gpu, conf):
             """
             after learning, inference testset
             """
-            if conf.DISTRIBUTE.GPU==0:
-                model = Model(conf.MODEL)
-                checkpoint = torch.load(best_score[-1][1])['model_state_dict']
-                model.load_state_dict(checkpoint)                
-                model.cuda()
-                test_dataset = LEVIR_256(conf.DATASETS,'test')
-                test_dataloader = torch.utils.data.DataLoader(
-                    test_dataset, batch_size=conf.SOLVER.IMS_PER_BATCH, shuffle=False,
-                    num_workers=conf.DATALOADER.WORKERS, pin_memory=True, drop_last=False)
+            model = Model(conf.MODEL)
+            checkpoint = torch.load(best_score[-1][1])['model_state_dict']
+            model.load_state_dict(checkpoint)                
+            model.cuda()
+            test_dataset = LEVIR_256(conf.DATASETS,'test')
+            test_dataloader = torch.utils.data.DataLoader(
+                test_dataset, batch_size=conf.SOLVER.IMS_PER_BATCH, shuffle=False,
+                num_workers=conf.DATALOADER.WORKERS, pin_memory=True, drop_last=False)
 
-                temp_wandb_dict = evaluate(model, criterion, test_dataloader ,device,conf,scaler,True,experiment_name)
+            temp_wandb_dict = evaluate(model, criterion, test_dataloader ,device,conf,scaler,True,experiment_name)
 
             
             if conf.ETC.WANDB:

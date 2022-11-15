@@ -99,7 +99,7 @@ def evaluate(model,lossfun ,data_loader, device,conf,scaler,test=False,exp_name=
             torch.cuda.synchronize()
 
         if not test:
-            for j in range(prev_img.shape[0]):
+            for j in range(imgs.shape[0]):
                 output_mask = F.one_hot(torch.argmax(outputs[j],dim=0),num_classes=4).permute(2,0,1)    
                 target_mask = F.one_hot(torch.argmax(targets[j],dim=0),num_classes=4).permute(2,0,1)
 
@@ -113,7 +113,7 @@ def evaluate(model,lossfun ,data_loader, device,conf,scaler,test=False,exp_name=
         
         if test:
             outputs = outputs.argmax(1).cpu().numpy().astype(np.uint8)
-            for j in range(prev_img.shape[0]):
+            for j in range(imgs.shape[0]):
                 resized_img = cv2.resize(outputs[j], [int(ws[j]//2), int(hs[j])], interpolation=cv2.INTER_NEAREST)
                 new_img = np.zeros((int(hs[j]),int(ws[j])))
                 new_img[:,:int(ws[j]//2)] = (resized_img==2)*2
